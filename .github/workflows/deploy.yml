@@ -15,9 +15,29 @@ on:
         required: false
 
 jobs:
+  check-secrets:
+    name: Check Required Secrets
+    runs-on: ubuntu-latest
+    outputs:
+      secrets-configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - name: Check if Azure secrets are configured
+        id: check
+        run: |
+          if [ -z "${{ secrets.AZURE_CREDENTIALS }}" ] || [ -z "${{ secrets.AZURE_SUBSCRIPTION_ID }}" ]; then
+            echo "configured=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Azure secrets not configured — skipping deployment."
+            echo "Add AZURE_CREDENTIALS, AZURE_SUBSCRIPTION_ID, AZURE_RESOURCE_GROUP, SENTINEL_WORKSPACE to repo secrets to enable auto-deploy."
+          else
+            echo "configured=true" >> $GITHUB_OUTPUT
+            echo "✅ Secrets configured — proceeding with deployment."
+          fi
+
   deploy-analytic-rules:
     name: Deploy Analytic Rules to Sentinel
     runs-on: ubuntu-latest
+    needs: check-secrets
+    if: needs.check-secrets.outputs.secrets-configured == 'true'
     environment: production
     steps:
       - name: Checkout
@@ -128,6 +148,8 @@ jobs:
   deploy-workbooks:
     name: Deploy Workbooks to Azure
     runs-on: ubuntu-latest
+    needs: check-secrets
+    if: needs.check-secrets.outputs.secrets-configured == 'true'
     environment: production
     steps:
       - uses: actions/checkout@v4
