@@ -1,16 +1,12 @@
 name: Deploy to Microsoft Sentinel
 
 on:
-  # Auto-deploy is disabled until Azure secrets are configured in repo settings.
-  # To enable: uncomment the push trigger below and add these secrets:
-  #   AZURE_CREDENTIALS, AZURE_SUBSCRIPTION_ID, AZURE_RESOURCE_GROUP, SENTINEL_WORKSPACE
-  #
-  # push:
-  #   branches: [ main ]
-  #   paths:
-  #     - 'Detections/**'
-  #     - 'Workbooks/**'
-  #     - 'Hunting/**'
+  push:
+    branches: [ main ]
+    paths:
+      - 'Detections/**'
+      - 'Workbooks/**'
+      - 'Hunting/**'
 
   workflow_dispatch:
     inputs:
