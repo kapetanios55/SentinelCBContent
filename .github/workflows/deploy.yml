@@ -33,6 +33,33 @@ jobs:
       - name: Install PyYAML
         run: pip install pyyaml
 
+      - name: Verify Azure access and Sentinel workspace
+        env:
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          SENTINEL_WORKSPACE: ${{ secrets.SENTINEL_WORKSPACE }}
+        run: |
+          echo "=== Auth Context ==="
+          az account show --query "{subscription:id, name:name, tenantId:tenantId}" -o table
+
+          echo "=== Resource Group ==="
+          az group show --name "$AZURE_RESOURCE_GROUP" --query "{name:name, location:location}" -o table || \
+            echo "❌ Resource group '$AZURE_RESOURCE_GROUP' not found or no access"
+
+          echo "=== Sentinel Workspace ==="
+          az monitor log-analytics workspace show \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --workspace-name "$SENTINEL_WORKSPACE" \
+            --query "{name:name, sku:sku.name}" -o table || \
+            echo "❌ Workspace '$SENTINEL_WORKSPACE' not found or no access"
+
+          echo "=== Sentinel Alert Rules (first 3) ==="
+          az rest \
+            --method GET \
+            --url "https://management.azure.com/subscriptions/$AZURE_SUBSCRIPTION_ID/resourceGroups/$AZURE_RESOURCE_GROUP/providers/Microsoft.OperationalInsights/workspaces/$SENTINEL_WORKSPACE/providers/Microsoft.SecurityInsights/alertRules?api-version=2023-02-01&\$top=3" \
+            --query "value[].properties.displayName" -o tsv || \
+            echo "❌ Could not list alert rules — check Sentinel is enabled on this workspace"
+
       - name: Get changed detection files
         id: changed
         run: |
