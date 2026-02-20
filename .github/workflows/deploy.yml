@@ -1,0 +1,153 @@
+name: Deploy to Microsoft Sentinel
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Detections/**'
+      - 'Workbooks/**'
+      - 'Hunting/**'
+
+  workflow_dispatch:
+    inputs:
+      workspace_name:
+        description: 'Sentinel workspace name (overrides secret)'
+        required: false
+
+jobs:
+  deploy-analytic-rules:
+    name: Deploy Analytic Rules to Sentinel
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Azure SDK
+        run: pip install azure-mgmt-securityinsight azure-identity pyyaml
+
+      - name: Get changed detection files
+        id: changed
+        run: |
+          git diff --name-only HEAD~1 HEAD -- 'Detections/*.yaml' > changed_files.txt || \
+          find Detections -name '*.yaml' > changed_files.txt
+          cat changed_files.txt
+
+      - name: Deploy analytic rules
+        env:
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          SENTINEL_WORKSPACE: ${{ secrets.SENTINEL_WORKSPACE }}
+        run: |
+          python3 << 'EOF'
+          import os, yaml, json
+          from azure.identity import DefaultAzureCredential
+          from azure.mgmt.securityinsight import SecurityInsights
+
+          subscription_id = os.environ['AZURE_SUBSCRIPTION_ID']
+          resource_group = os.environ['AZURE_RESOURCE_GROUP']
+          workspace_name = os.environ['SENTINEL_WORKSPACE']
+
+          credential = DefaultAzureCredential()
+          client = SecurityInsights(credential, subscription_id)
+
+          # Read changed files list
+          try:
+              with open('changed_files.txt') as f:
+                  changed = [l.strip() for l in f if l.strip() and l.strip().endswith('.yaml')]
+          except:
+              changed = []
+
+          deployed = 0
+          errors = []
+
+          for filepath in changed:
+              if not os.path.exists(filepath):
+                  print(f"  ⏭️  Skipping deleted file: {filepath}")
+                  continue
+
+              with open(filepath) as f:
+                  rule = yaml.safe_load(f)
+
+              rule_id = rule.get('id')
+              rule_name = rule.get('name', 'Unknown')
+
+              # Map YAML format to Sentinel API format
+              body = {
+                  'kind': 'Scheduled',
+                  'properties': {
+                      'displayName': rule_name,
+                      'description': rule.get('description', '').strip(),
+                      'severity': rule.get('severity', 'Medium'),
+                      'enabled': True,
+                      'query': rule.get('query', '').strip(),
+                      'queryFrequency': rule.get('queryFrequency', 'PT1H'),
+                      'queryPeriod': rule.get('queryPeriod', 'PT1H'),
+                      'triggerOperator': 'GreaterThan' if rule.get('triggerOperator', 'gt') == 'gt' else rule.get('triggerOperator'),
+                      'triggerThreshold': rule.get('triggerThreshold', 0),
+                      'tactics': rule.get('tactics', []),
+                      'techniques': rule.get('relevantTechniques', []),
+                      'suppressionEnabled': False,
+                      'suppressionDuration': 'PT1H',
+                  }
+              }
+
+              if 'entityMappings' in rule:
+                  body['properties']['entityMappings'] = rule['entityMappings']
+
+              try:
+                  result = client.alert_rules.create_or_update(
+                      resource_group_name=resource_group,
+                      workspace_name=workspace_name,
+                      rule_id=rule_id,
+                      alert_rule=body
+                  )
+                  print(f"  ✅ Deployed: {rule_name}")
+                  deployed += 1
+              except Exception as e:
+                  errors.append(f"{rule_name}: {e}")
+                  print(f"  ❌ Failed: {rule_name} — {e}")
+
+          print(f"\n📊 Summary: {deployed} deployed, {len(errors)} failed")
+          if errors:
+              exit(1)
+          EOF
+
+  deploy-workbooks:
+    name: Deploy Workbooks to Azure
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy workbooks via ARM
+        env:
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+        run: |
+          for workbook in Workbooks/*.json; do
+            echo "Deploying: $workbook"
+            az deployment group create \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --template-file "$workbook" \
+              --name "$(basename $workbook .json)-$(date +%Y%m%d%H%M%S)" \
+              && echo "  ✅ Deployed: $workbook" \
+              || echo "  ❌ Failed: $workbook"
+          done

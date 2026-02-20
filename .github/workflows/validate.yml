@@ -1,0 +1,118 @@
+name: Validate Sentinel Content
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate-yaml:
+    name: Validate YAML Structure
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install pyyaml jsonschema
+
+      - name: Validate detection YAML files
+        run: |
+          python3 << 'EOF'
+          import os, yaml, sys, uuid
+
+          required_fields = ['id', 'name', 'description', 'severity', 'tactics', 'relevantTechniques', 'query', 'queryFrequency', 'queryPeriod', 'triggerOperator', 'triggerThreshold', 'version', 'kind']
+          valid_severities = ['High', 'Medium', 'Low', 'Informational']
+          errors = []
+
+          for root, dirs, files in os.walk('Detections'):
+              for f in files:
+                  if not f.endswith('.yaml'):
+                      continue
+                  path = os.path.join(root, f)
+                  with open(path) as fh:
+                      try:
+                          doc = yaml.safe_load(fh)
+                      except yaml.YAMLError as e:
+                          errors.append(f"{path}: YAML parse error: {e}")
+                          continue
+                  for field in required_fields:
+                      if field not in doc:
+                          errors.append(f"{path}: Missing required field '{field}'")
+                  if 'severity' in doc and doc['severity'] not in valid_severities:
+                      errors.append(f"{path}: Invalid severity '{doc['severity']}'")
+                  if 'id' in doc:
+                      try:
+                          uuid.UUID(str(doc['id']))
+                      except ValueError:
+                          errors.append(f"{path}: 'id' is not a valid UUID")
+                  print(f"  ✅ {path}")
+
+          if errors:
+              print("\n❌ Validation errors:")
+              for e in errors:
+                  print(f"  - {e}")
+              sys.exit(1)
+          else:
+              print("\n✅ All detection files valid")
+          EOF
+
+      - name: Validate hunting query YAML files
+        run: |
+          python3 << 'EOF'
+          import os, yaml, sys
+
+          errors = []
+          for root, dirs, files in os.walk('Hunting'):
+              for f in files:
+                  if not f.endswith('.yaml') and not f.endswith('.json'):
+                      continue
+                  path = os.path.join(root, f)
+                  with open(path) as fh:
+                      try:
+                          if f.endswith('.yaml'):
+                              doc = yaml.safe_load(fh)
+                          else:
+                              import json
+                              doc = json.load(fh)
+                      except Exception as e:
+                          errors.append(f"{path}: Parse error: {e}")
+                          continue
+                  print(f"  ✅ {path}")
+
+          if errors:
+              for e in errors:
+                  print(f"  ❌ {e}")
+              sys.exit(1)
+          EOF
+
+  check-duplicates:
+    name: Check for Duplicate IDs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for duplicate detection IDs
+        run: |
+          python3 << 'EOF'
+          import os, yaml
+          ids = {}
+          for root, dirs, files in os.walk('Detections'):
+              for f in files:
+                  if not f.endswith('.yaml'):
+                      continue
+                  path = os.path.join(root, f)
+                  with open(path) as fh:
+                      doc = yaml.safe_load(fh)
+                  if 'id' in doc:
+                      if doc['id'] in ids:
+                          print(f"❌ Duplicate ID {doc['id']} in {path} and {ids[doc['id']]}")
+                          exit(1)
+                      ids[doc['id']] = path
+          print(f"✅ All {len(ids)} detection IDs are unique")
+          EOF
