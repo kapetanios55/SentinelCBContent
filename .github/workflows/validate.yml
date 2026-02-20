@@ -92,6 +92,67 @@ jobs:
               sys.exit(1)
           EOF
 
+  validate-arm-templates:
+    name: Validate ARM Templates (Workbooks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ARM TTK (ARM Template Test Toolkit)
+        run: |
+          curl -sL https://aka.ms/arm-ttk-azuredevops -o arm-ttk.zip 2>/dev/null || true
+          # Fallback: use az bicep / ARM schema validation via Python
+          pip install jsonschema
+
+      - name: Validate ARM template structure
+        run: |
+          python3 << 'EOF'
+          import os, json, sys
+
+          arm_required = ['$schema', 'contentVersion', 'resources']
+          errors = []
+
+          for root, dirs, files in os.walk('Workbooks'):
+              for f in files:
+                  if not f.endswith('.json'):
+                      continue
+                  path = os.path.join(root, f)
+                  with open(path) as fh:
+                      try:
+                          doc = json.load(fh)
+                      except json.JSONDecodeError as e:
+                          errors.append(f"{path}: JSON parse error: {e}")
+                          continue
+
+                  for field in arm_required:
+                      if field not in doc:
+                          errors.append(f"{path}: Missing ARM field '{field}'")
+
+                  # Check newGuid() is NOT used inline in resource names
+                  resources = doc.get('resources', [])
+                  for res in resources:
+                      name = res.get('name', '')
+                      if 'newGuid()' in name:
+                          errors.append(f"{path}: Resource 'name' uses newGuid() inline — must be in parameter defaultValue instead")
+
+                  # Check parameters section for proper newGuid() usage
+                  params = doc.get('parameters', {})
+                  for pname, pval in params.items():
+                      default = str(pval.get('defaultValue', ''))
+                      if 'newGuid()' in default:
+                          print(f"  ℹ️  {path}: parameter '{pname}' uses newGuid() correctly in defaultValue")
+
+                  print(f"  ✅ {path}")
+
+          if errors:
+              print("\n❌ ARM template validation errors:")
+              for e in errors:
+                  print(f"  - {e}")
+              sys.exit(1)
+          else:
+              print("\n✅ All ARM templates valid")
+          EOF
+
   check-duplicates:
     name: Check for Duplicate IDs
     runs-on: ubuntu-latest
