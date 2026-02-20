@@ -73,7 +73,15 @@ jobs:
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
           SENTINEL_WORKSPACE: ${{ secrets.SENTINEL_WORKSPACE }}
-        run: python3 scripts/deploy-rules.py changed_files.txt
+        run: |
+          echo "=== Python version ==="
+          python3 --version
+          echo "=== yaml available ==="
+          python3 -c "import yaml; print('yaml ok')"
+          echo "=== changed_files.txt ==="
+          cat changed_files.txt || echo "(empty or missing)"
+          echo "=== running deploy script ==="
+          python3 scripts/deploy-rules.py changed_files.txt
 
   deploy-workbooks:
     name: Deploy Workbooks to Azure
