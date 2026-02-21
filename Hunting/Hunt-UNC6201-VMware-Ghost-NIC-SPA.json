@@ -1,0 +1,64 @@
+{
+  "id": "d9e5f3a4-b6c7-8901-defa-123456789013",
+  "name": "Hunt: UNC6201 VMware Ghost NIC Creation and Single Packet Authorization",
+  "description": "Hunting query for UNC6201 (suspected PRC-nexus, overlapping with Silk Typhoon/UNC5221) post-exploitation TTPs observed in Dell RecoverPoint / VMware environments. Specifically hunts for:\n\n1. Ghost NIC creation: UNC6201 dynamically adds temporary virtual network adapters to running VMs on ESXi to pivot into internal and SaaS infrastructure without triggering standard network change alerts.\n\n2. Single Packet Authorization (SPA) via iptables: UNC6201 uses iptables rules on compromised appliances (vCenter, Dell RecoverPoint, ESXi) to create a time-limited port-knocking mechanism that hides C2 traffic on port 443/10443.\n\n3. SLAYSTYLE web shell access patterns: HTTP access to .war or JSP deployment endpoints on Tomcat Manager.\n\n4. GRIMBOLT/BRICKSTORM C2 beacon patterns: Periodic encrypted beacon traffic from appliances to external IPs.\n\nReferences:\n- https://cloud.google.com/blog/topics/threat-intelligence/unc6201-exploiting-dell-recoverpoint-zero-day\n- https://cloud.google.com/blog/topics/threat-intelligence/brickstorm-espionage-campaign\n- CVE-2026-22769 (Dell RecoverPoint RP4VMs hard-coded credentials, CVSS 10.0)\n- CISA KEV: added 2026-02-18, due 2026-02-21",
+  "tactics": [
+    "LateralMovement",
+    "CommandAndControl",
+    "Persistence",
+    "DefenseEvasion"
+  ],
+  "techniques": [
+    "T1021.001",
+    "T1572",
+    "T1505.003",
+    "T1564",
+    "T1090.003"
+  ],
+  "requiredDataConnectors": [
+    {
+      "connectorId": "Syslog",
+      "dataTypes": ["Syslog"]
+    },
+    {
+      "connectorId": "MicrosoftDefenderForEndpoint",
+      "dataTypes": [
+        "DeviceProcessEvents",
+        "DeviceNetworkEvents",
+        "DeviceEvents",
+        "DeviceFileEvents"
+      ]
+    },
+    {
+      "connectorId": "CEF",
+      "dataTypes": ["CommonSecurityLog"]
+    }
+  ],
+  "status": "Available",
+  "tags": ["UNC6201", "Silk Typhoon", "BRICKSTORM", "GRIMBOLT", "SLAYSTYLE", "PRC", "VMware", "Dell", "CVE-2026-22769", "Ghost NIC", "SPA"],
+  "query": "// ==========================================================================\n// HUNT 1: Ghost NIC creation on ESXi hosts\n// UNC6201 adds temporary vNICs to VMs to pivot to internal/SaaS networks\n// Look for hot-add NIC events in ESXi/hostd/vmkernel syslogs\n// ==========================================================================\nlet GhostNICCreation = Syslog\n    | where TimeGenerated > ago(7d)\n    | where SyslogMessage has_any (\n        \"Hot add of device\",\n        \"adding network adapter\",\n        \"vmxnet3\",\n        \"Hot-plug operation\",\n        \"connect network\",\n        \"DeviceAttach\"\n      )\n    | where Computer has_any (\"esxi\", \"vcenter\", \"vmware\") \n        or ProcessName has_any (\"hostd\", \"vmkernel\", \"vmx\")\n    | extend HuntDetail = \"Possible Ghost NIC creation on ESXi (UNC6201 tactic)\"\n    | project TimeGenerated, Computer, ProcessName, SyslogMessage, HuntDetail;\n// ==========================================================================\n// HUNT 2: iptables Single Packet Authorization rules (UNC6201 C2 protection)\n// The actor configures iptables to only allow C2 traffic from IPs that\n// first send a specific hex string to port 443 (SPA / port knocking)\n// ==========================================================================\nlet SPARules = DeviceProcessEvents\n    | where TimeGenerated > ago(7d)\n    | where FileName == \"iptables\"\n    | where ProcessCommandLine has_all (\"--dport\", \"PREROUTING\")\n        or (ProcessCommandLine has \"REDIRECT\" and ProcessCommandLine has \"--to-ports\")\n        or (ProcessCommandLine has \"--hex-string\" and ProcessCommandLine has \"--dport 443\")\n        or (ProcessCommandLine has \"port_filter\" and ProcessCommandLine has \"ipt\")\n    | extend HuntDetail = strcat(\"Suspicious iptables SPA rule: \", ProcessCommandLine)\n    | project TimeGenerated, DeviceName, AccountName, ProcessCommandLine, HuntDetail;\n// ==========================================================================\n// HUNT 3: Tomcat Manager WAR deployment (SLAYSTYLE web shell delivery)\n// UNC6201 used default Dell RecoverPoint Tomcat credentials to upload\n// malicious WAR files containing the SLAYSTYLE web shell\n// ==========================================================================\nlet TomcatWARDeploy = CommonSecurityLog\n    | where TimeGenerated > ago(7d)\n    | where RequestURL has_any (\n        \"/manager/text/deploy\",\n        \"/manager/html/deploy\",\n        \"/manager/html/upload\"\n      )\n    | where RequestMethod in (\"PUT\", \"POST\")\n    | extend HuntDetail = strcat(\"Tomcat WAR deployment to \", RequestURL, \" from \", SourceIP)\n    | project TimeGenerated, SourceIP, DestinationIP, RequestURL, RequestMethod, HuntDetail;\n// ==========================================================================\n// HUNT 4: GRIMBOLT/BRICKSTORM persistence via convert_hosts.sh modification\n// The actor modified this boot-time script on Dell RecoverPoint appliances\n// to persist the backdoor across reboots\n// ==========================================================================\nlet PersistenceScript = DeviceFileEvents\n    | where TimeGenerated > ago(7d)\n    | where FolderPath has \"/home/kos/\" or FileName == \"convert_hosts.sh\"\n        or (FolderPath == \"/etc\" and FileName == \"rc.local\")\n    | where ActionType in (\"FileModified\", \"FileCreated\", \"FileRenamed\")\n    | extend HuntDetail = strcat(\"Possible GRIMBOLT persistence: \", FolderPath, \"/\", FileName, \" modified by \", InitiatingProcessFileName)\n    | project TimeGenerated, DeviceName, InitiatingProcessFileName, FolderPath, FileName, SHA256, HuntDetail;\n// ==========================================================================\n// HUNT 5: Periodic beacon traffic from appliance-class hosts\n// BRICKSTORM and GRIMBOLT use encrypted C2; look for regular outbound\n// connections from infrastructure hosts (not user workstations) to external IPs\n// on port 443 with consistent timing intervals\n// ==========================================================================\nlet BeaconLike = DeviceNetworkEvents\n    | where TimeGenerated > ago(7d)\n    | where RemotePort == 443\n    | where ActionType == \"ConnectionSuccess\"\n    | where RemoteIPType == \"Public\"\n    // Focus on appliance/server type hostnames — adjust pattern for environment\n    | where DeviceName has_any (\"recoverpoint\", \"rp4vm\", \"vcenter\", \"esxi\", \"appliance\", \"gateway\")\n    | summarize ConnectionCount = count(), \n                FirstSeen = min(TimeGenerated), \n                LastSeen = max(TimeGenerated)\n                by DeviceName, RemoteIP, RemotePort\n    | where ConnectionCount >= 10  // Regular, repeated connections suggest beaconing\n    | extend HuntDetail = strcat(DeviceName, \" made \", ConnectionCount, \" connections to \", RemoteIP, \":443 — possible BRICKSTORM/GRIMBOLT C2 beacon\")\n    | project FirstSeen, LastSeen, DeviceName, RemoteIP, ConnectionCount, HuntDetail;\n// Union all hunts\nunion GhostNICCreation, SPARules, TomcatWARDeploy, PersistenceScript, BeaconLike\n| sort by TimeGenerated desc",
+  "queryFrequency": "7d",
+  "queryPeriod": "7d",
+  "version": "1.0.0",
+  "kind": "Scheduled",
+  "metadata": {
+    "source": {
+      "kind": "Community"
+    },
+    "author": {
+      "name": "SentinelCBContent Threat Intel Bot"
+    },
+    "support": {
+      "tier": "Community"
+    },
+    "categories": {
+      "domains": [
+        "Security - Threat Intelligence",
+        "Security - Network"
+      ],
+      "verticals": []
+    },
+    "dateAdded": "2026-02-21",
+    "lastUpdated": "2026-02-21"
+  }
+}
