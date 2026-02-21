@@ -114,6 +114,42 @@ Resources
 
 ---
 
+## Hunting Queries
+
+### Use savedSearches API — NOT huntingQueries
+`Microsoft.SecurityInsights/huntingQueries` is **not** a valid REST endpoint. Deploying to it returns `NoRegisteredProviderFound`.
+
+✅ Correct endpoint:
+```
+PUT .../providers/Microsoft.OperationalInsights/workspaces/{ws}/savedSearches/{id}?api-version=2020-08-01
+```
+
+Required body structure:
+```json
+{
+  "properties": {
+    "category":    "Hunting Queries",
+    "displayName": "Query Name",
+    "query":       "KQL here",
+    "tags": [
+      { "name": "description", "value": "..." },
+      { "name": "tactics",     "value": "Impact,Execution" },
+      { "name": "techniques",  "value": "T1485" }
+    ],
+    "version": 2
+  }
+}
+```
+The `category: "Hunting Queries"` and `version: 2` are what make the query appear in the Sentinel → Hunting menu.
+
+### Each hunting query JSON must have an `id` field
+The `savedSearches` PUT endpoint requires a stable ID in the URL. Add a UUID to every hunting query file:
+```json
+{ "id": "e1a2b3c4-d5e6-7890-abcd-ef1234567801", "name": "...", ... }
+```
+
+---
+
 ## GitHub Actions / Deploy
 
 ### Required secrets
