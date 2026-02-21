@@ -1,9 +1,16 @@
 {
+  "id": "e1a2b3c4-d5e6-7890-abcd-ef1234567801",
   "name": "Hunting - DynoWiper IOC SHA256 Hash",
   "description": "Hunt for the known DynoWiper wiper malware SHA256 hash across endpoint telemetry. DynoWiper (SHA256: 835b0d87ed2d49899ab6f9479cddb8b4e03f5aeb2365c50a51f9088dcede68d5) was used by Russian APT Sandworm in attacks against Polish energy sector companies in December 2025. This hunt queries MDE DeviceFileEvents, DeviceProcessEvents, and DeviceAlertEvents for any trace of this binary being downloaded, executed, or detected.",
-  "tactics": ["Impact"],
-  "techniques": ["T1485"],
-  "requiredDataConnectors": ["MicrosoftDefenderForEndpoint"],
+  "tactics": [
+    "Impact"
+  ],
+  "techniques": [
+    "T1485"
+  ],
+  "requiredDataConnectors": [
+    "MicrosoftDefenderForEndpoint"
+  ],
   "query": "// Hunt for DynoWiper (Sandworm/APT44) IOC\n// SHA256: 835b0d87ed2d49899ab6f9479cddb8b4e03f5aeb2365c50a51f9088dcede68d5\nlet dynowiper_sha256 = '835b0d87ed2d49899ab6f9479cddb8b4e03f5aeb2365c50a51f9088dcede68d5';\nlet lookback = 30d;\n// File presence on disk\nlet FileHits = DeviceFileEvents\n| where TimeGenerated >= ago(lookback)\n| where SHA256 == dynowiper_sha256\n| extend HitType = 'FileOnDisk'\n| project TimeGenerated, DeviceName, HitType, FileName, FolderPath, InitiatingProcessAccountName;\n// Process execution\nlet ProcessHits = DeviceProcessEvents\n| where TimeGenerated >= ago(lookback)\n| where SHA256 == dynowiper_sha256\n| extend HitType = 'ProcessExecution'\n| project TimeGenerated, DeviceName, HitType, FileName, FolderPath, AccountName = AccountUpn, ProcessCommandLine;\n// MDE Alerts\nlet AlertHits = DeviceAlertEvents\n| where TimeGenerated >= ago(lookback)\n| where SHA256 == dynowiper_sha256\n| extend HitType = 'MDEAlert'\n| project TimeGenerated, DeviceName, HitType, FileName, AlertId, Title, Severity;\nFileHits\n| project TimeGenerated, DeviceName, HitType, Details = strcat('File: ', FolderPath, '\\\\', FileName, ' | Account: ', InitiatingProcessAccountName)\n| union (\n    ProcessHits | project TimeGenerated, DeviceName, HitType, Details = strcat('Executed: ', FolderPath, '\\\\', FileName, ' | Cmd: ', ProcessCommandLine)\n)\n| union (\n    AlertHits | project TimeGenerated, DeviceName, HitType, Details = strcat('Alert: ', Title, ' | Severity: ', Severity)\n)\n| sort by TimeGenerated desc",
   "source": "https://isc.sans.edu/diary.html",
   "references": [

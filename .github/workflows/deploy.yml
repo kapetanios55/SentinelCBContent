@@ -83,6 +83,35 @@ jobs:
           echo "=== running deploy script ==="
           python3 scripts/deploy-rules.py changed_files.txt
 
+  deploy-hunting-queries:
+    name: Deploy Hunting Queries to Sentinel
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get changed hunting files
+        run: |
+          git diff --name-only HEAD~1 HEAD -- 'Hunting/*.json' > changed_hunting.txt || \
+          find Hunting -name '*.json' > changed_hunting.txt
+          echo "Changed hunting files:"
+          cat changed_hunting.txt
+
+      - name: Deploy hunting queries via az rest
+        env:
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          SENTINEL_WORKSPACE: ${{ secrets.SENTINEL_WORKSPACE }}
+        run: python3 scripts/deploy-hunting.py changed_hunting.txt
+
   deploy-workbooks:
     name: Deploy Workbooks to Azure
     runs-on: ubuntu-latest
