@@ -22,9 +22,15 @@
     },
     "workbookSourceId": {
       "type": "string",
-      "defaultValue": "Azure Security Insights",
+      "defaultValue": "[resourceId('microsoft.operationalinsights/workspaces', parameters('workbookWorkspaceName'))]",
       "metadata": {
-        "description": "Set this to your Log Analytics workspace resource ID for full Sentinel integration."
+        "description": "Resource ID of the Log Analytics workspace. Auto-computed from workbookWorkspaceName \u2014 do not override unless you know what you're doing."
+      }
+    },
+    "workbookWorkspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the Log Analytics workspace that Microsoft Sentinel is enabled on. This is used to correctly associate the workbook so it appears in the Sentinel Workbooks menu."
       }
     }
   },

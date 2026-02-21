@@ -99,6 +99,7 @@ jobs:
         env:
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          SENTINEL_WORKSPACE: ${{ secrets.SENTINEL_WORKSPACE }}
         run: |
           FAILED=0
           for workbook in Workbooks/*.json; do
@@ -109,6 +110,7 @@ jobs:
               --resource-group "$AZURE_RESOURCE_GROUP" \
               --template-file "$workbook" \
               --name "$DEPLOY_NAME" \
+              --parameters workbookWorkspaceName="$SENTINEL_WORKSPACE" \
               --output none; then
               echo "  ✅ Deployed: $NAME"
             else
