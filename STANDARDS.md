@@ -51,6 +51,10 @@ MDE table column names are inconsistent. Key differences:
 | `DeviceFileEvents` | `InitiatingProcessAccountName` |
 | `DeviceEvents` | `InitiatingProcessAccountName` |
 
+**CommonSecurityLog column names:**
+- HTTP response code → `EventOutcome` (not `ResponseCode`)
+- Use `| extend ResponseCode = tostring(EventOutcome)` if you need to project it with a friendly name
+
 When unioning across MDE tables, normalise with:
 ```kql
 | extend AccountName = InitiatingProcessAccountName
