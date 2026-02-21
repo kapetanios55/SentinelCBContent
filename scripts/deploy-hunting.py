@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """
-deploy-hunting.py — Deploy Sentinel Hunting Queries via az rest
+deploy-hunting.py — Deploy Sentinel Hunting Queries via savedSearches API
 Usage: python3 scripts/deploy-hunting.py [changed_files.txt]
 Env:   AZURE_SUBSCRIPTION_ID, AZURE_RESOURCE_GROUP, SENTINEL_WORKSPACE
+
+Hunting queries in Sentinel are stored as Log Analytics savedSearches with
+category "Hunting Queries". This is the correct, supported deployment method.
+API: Microsoft.OperationalInsights/workspaces/savedSearches (api-version=2020-08-01)
 """
 import os, sys, json, subprocess
 
-API_VERSION = "2023-11-01"
+API_VERSION = "2020-08-01"
 
 def map_techniques(techniques):
     """Strip sub-techniques — Sentinel only accepts T#### format."""
@@ -31,7 +35,6 @@ def main():
     print(f"Resource Group: {rg}")
     print(f"Workspace: {ws}")
 
-    # Read file list
     changed_file = sys.argv[1] if len(sys.argv) > 1 else 'changed_hunting.txt'
     try:
         with open(changed_file) as f:
@@ -64,6 +67,9 @@ def main():
 
         query_id   = str(q.get('id', '')).strip()
         query_name = q.get('name', 'Unknown')
+        tactics    = q.get('tactics', [])
+        techniques = map_techniques(q.get('techniques', []))
+        description = q.get('description', '')
 
         if not query_id:
             print(f"  ❌ Missing 'id' field in {filepath}")
@@ -73,21 +79,28 @@ def main():
         print(f"  Name: {query_name}")
         print(f"  ID:   {query_id}")
 
+        # savedSearches body — Sentinel reads category + tags to surface in Hunting
+        tags = [{"name": "description", "value": description[:256]}]
+        if tactics:
+            tags.append({"name": "tactics", "value": ",".join(tactics)})
+        if techniques:
+            tags.append({"name": "techniques", "value": ",".join(techniques)})
+
         body = {
             "properties": {
-                "displayName":  query_name,
-                "description":  q.get('description', ''),
-                "query":        q.get('query', ''),
-                "tactics":      q.get('tactics', []),
-                "techniques":   map_techniques(q.get('techniques', [])),
+                "category":    "Hunting Queries",
+                "displayName": query_name,
+                "query":       q.get('query', ''),
+                "tags":        tags,
+                "version":     2
             }
         }
 
         url = (
             f"https://management.azure.com/subscriptions/{sub}"
-            f"/resourceGroups/{rg}"
+            f"/resourcegroups/{rg}"
             f"/providers/Microsoft.OperationalInsights/workspaces/{ws}"
-            f"/providers/Microsoft.SecurityInsights/huntingQueries/{query_id}"
+            f"/savedSearches/{query_id}"
             f"?api-version={API_VERSION}"
         )
 
