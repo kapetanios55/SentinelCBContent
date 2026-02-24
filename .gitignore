@@ -1,0 +1,40 @@
+# Local deployment artifacts
+changed_files.txt
+changed_hunting.txt
+changed_workbooks.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+venv/
+.venv/
+env/
+
+# Environment / secrets — never commit these
+.env
+.env.*
+*.env
+secrets.json
+credentials.json
+
+# Azure CLI cache
+.azure/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.iml
+
+# Test output
+*.log
+test-output/
