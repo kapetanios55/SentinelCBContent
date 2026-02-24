@@ -1,7 +1,8 @@
 # SentinelCBContent — Authoring Standards
 
-Rules for creating detection rules, hunting queries, and workbooks in this repo.
-Follow these to ensure clean CI validation and successful Sentinel API deployment.
+This document defines the authoring standards for detection rules, hunting queries, and workbooks in this repository. Following these standards ensures content passes CI validation and deploys cleanly to Microsoft Sentinel via the REST API.
+
+If you are contributing for the first time, read this document in full before writing any content. Most CI failures and Sentinel API rejections have a known cause documented here.
 
 ---
 
@@ -54,6 +55,7 @@ MDE table column names are inconsistent. Key differences:
 **CommonSecurityLog column names:**
 - HTTP response code → `EventOutcome` (not `ResponseCode`)
 - Use `| extend ResponseCode = tostring(EventOutcome)` if you need to project it with a friendly name
+- `RequestSize` does **not** exist in `CommonSecurityLog` — using it causes a `SEM0100 SemanticError` at deploy time. Use `AdditionalExtensions` to inspect payload characteristics instead.
 
 When unioning across MDE tables, normalise with:
 ```kql
@@ -166,9 +168,9 @@ All four must be configured (repo or `production` environment):
 ### Redeploying all rules after a failed run
 The deploy script uses `git diff HEAD~1 HEAD` to identify changed files.
 To force a full redeploy, bump the `version` field across all detection files so
-they all appear in the diff:
+they all appear in the diff. For example, to increment the patch version from `1.0.x` to `1.0.x+1`:
 ```bash
-# Quick version bump across all detections
-sed -i 's/^version: \(.*\)/version: \1/' Detections/*.yaml
+# Example: bump all rules from 1.0.0 to 1.0.1
+sed -i 's/^version: 1\.0\.0/version: 1.0.1/' Detections/*.yaml
+git add Detections/ && git commit -m "chore: bump versions to force full redeploy"
 ```
-Or update them with the version bump script used in this repo's CI history.
