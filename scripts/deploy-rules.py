@@ -93,13 +93,26 @@ def main():
                 'triggerThreshold':   int(rule.get('triggerThreshold', 0)),
                 'tactics':            rule.get('tactics', []),
                 'techniques':         rule.get('relevantTechniques', []),
-                'suppressionEnabled': False,
-                'suppressionDuration': 'PT1H',
+                'suppressionEnabled': bool(rule.get('suppressionEnabled', False)),
+                'suppressionDuration': to_iso8601(rule.get('suppressionDuration', 'PT1H')),
             }
         }
 
         if 'entityMappings' in rule:
             body['properties']['entityMappings'] = rule['entityMappings']
+
+        # Optional alert enrichment and incident settings (previously defined in the
+        # YAML files but never sent to the API)
+        for key in ('customDetails', 'alertDetailsOverride'):
+            if rule.get(key):
+                body['properties'][key] = rule[key]
+
+        if rule.get('incidentConfiguration'):
+            incident = json.loads(json.dumps(rule['incidentConfiguration']))
+            grouping = incident.get('groupingConfiguration') or {}
+            if 'lookbackDuration' in grouping:
+                grouping['lookbackDuration'] = to_iso8601(grouping['lookbackDuration'])
+            body['properties']['incidentConfiguration'] = incident
 
         url = (f"https://management.azure.com/subscriptions/{sub}"
                f"/resourceGroups/{rg}"

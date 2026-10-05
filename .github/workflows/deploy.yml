@@ -17,6 +17,8 @@ on:
 jobs:
   deploy-analytic-rules:
     name: Deploy Analytic Rules to Sentinel
+    # Skipped unless the DEPLOY_ENABLED repository variable is 'true' (manual runs always proceed)
+    if: vars.DEPLOY_ENABLED == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -85,6 +87,8 @@ jobs:
 
   deploy-hunting-queries:
     name: Deploy Hunting Queries to Sentinel
+    # Skipped unless the DEPLOY_ENABLED repository variable is 'true' (manual runs always proceed)
+    if: vars.DEPLOY_ENABLED == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -114,6 +118,8 @@ jobs:
 
   deploy-workbooks:
     name: Deploy Workbooks to Azure
+    # Skipped unless the DEPLOY_ENABLED repository variable is 'true' (manual runs always proceed)
+    if: vars.DEPLOY_ENABLED == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: production
     steps:
