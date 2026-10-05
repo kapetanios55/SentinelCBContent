@@ -2,7 +2,9 @@
 
 A community-driven library of Microsoft Sentinel detection rules, hunting queries, and workbooks — focused on actively exploited vulnerabilities from the **CISA Known Exploited Vulnerabilities (KEV)** catalog and other high-signal threat intelligence sources.
 
-Content is updated regularly as new threats emerge. All rules are production-tested and deployed via CI/CD directly into Microsoft Sentinel.
+Content is updated regularly as new threats emerge. Every rule is validated in CI and deployed via CI/CD directly into Microsoft Sentinel.
+
+**Latest update (October 2026):** LiteLLM MCP abuse, the July-September 2026 SharePoint Server exploitation cluster, JetBrains TeamCity CVE-2026-63077 (known ransomware use) and ConnectWise ScreenConnect CVE-2026-84869.
 
 ---
 
@@ -32,15 +34,19 @@ Scheduled analytic rules in YAML format. Each file maps to a single Sentinel ana
 | BeyondTrust Remote Support OS Command Injection | CVE-2026-1731 | High |
 | Chromium CSS Use-After-Free | CVE-2026-2441 | High |
 | Cisco Unified CM Code Injection RCE | CVE-2026-20045 | High |
+| ConnectWise ScreenConnect Client Unauthorized File Transfer/Execution | CVE-2026-84869 | Medium |
 | Dell RecoverPoint Hard-coded Credentials (UNC6201) | CVE-2026-22769 | High |
 | DynoWiper Wiper Malware Behaviour | — | High |
 | Fortinet FortiCloud SSO Authentication Bypass | CVE-2026-24858 | High |
 | GitLab SSRF via Webhook Requests | CVE-2021-22175 | High |
 | Ivanti EPMM Code Injection | CVE-2026-1281 | High |
+| JetBrains TeamCity Server Deserialization RCE (known ransomware use) | CVE-2026-63077 | High |
+| LiteLLM Proxy MCP Endpoint Abuse | CVE-2026-42271, CVE-2026-59822 | High |
 | Microsoft Configuration Manager SQL Injection | CVE-2024-43468 | High |
 | Microsoft February 2026 Patch Tuesday Exploit Indicators | CVE-2026-21513, CVE-2026-21510, CVE-2026-21519, CVE-2026-21533, CVE-2026-21514 | High |
 | RoundCube Webmail XSS + Deserialization | CVE-2025-68461, CVE-2025-49113 | High |
 | Sangoma FreePBX Auth Bypass + Command Injection | CVE-2019-19006, CVE-2025-64328 | High |
+| SharePoint Server Exploitation: Web Shell, w3wp Child Process, Machine-Key Theft | CVE-2026-45659, CVE-2026-56164, CVE-2026-58644, CVE-2026-50522, CVE-2026-65660 | High |
 | SmarterMail Missing Authentication RCE | CVE-2026-24423 | High |
 | SolarWinds WHD Authentication Bypass | CVE-2025-40536 | High |
 | SolarWinds WHD Deserialization RCE | CVE-2025-40551 | High |
@@ -52,9 +58,13 @@ Scheduled analytic rules in YAML format. Each file maps to a single Sentinel ana
 
 Proactive threat hunting queries in JSON format. Designed for 30-day retroactive hunts across endpoint and network telemetry.
 
+- Hunt-CiscoSDWAN-AuthBypass-NETCONF-CVE-2026-20127
 - Hunt-DynoWiper-IOC-SHA256
 - Hunt-Fortinet-FortiCloud-SSO-Abuse-CVE-2026-24858
+- Hunt-LiteLLM-MCP-Abuse-CVE-2026-42271-59822-42208
+- Hunt-OpenRedirect-OAuth-TokenHijacking
 - Hunt-RemcosRAT-JScript-JPEG-Dropper
+- Hunt-SharePoint-WebShell-W3wp-Children-2026-KEV
 - Hunt-SolarWinds-WHD-Deserialization-CVE-2025-40551
 - Hunt-UNC6201-VMware-Ghost-NIC-SPA
 - Hunt-Zimbra-ZCS-WebEx-Zimlet-SSRF-CVE-2020-7796
@@ -84,7 +94,7 @@ Fork this repo, add the following secrets to your GitHub repository (Settings �
 | `AZURE_RESOURCE_GROUP` | Resource group containing your Sentinel workspace |
 | `SENTINEL_WORKSPACE` | Log Analytics workspace name |
 
-Push to `main` and the workflows will validate and deploy automatically.
+Then create a repository **variable** (Settings → Secrets and variables → Actions → Variables) named `DEPLOY_ENABLED` with the value `true`. Push to `main` and the workflows will validate and deploy automatically. Without that variable, deploy jobs are skipped on push (validation still runs), and you can still trigger a deploy manually from the Actions tab.
 
 **Minimum required RBAC role:** `Microsoft Sentinel Contributor` on the workspace resource group.
 
@@ -138,10 +148,11 @@ Deploys Sentinel scheduled analytic rules from YAML detection files using the Se
 
 1. Reads a list of changed YAML files from a text file (one path per line)
 2. Parses each YAML file and maps fields to the Sentinel API schema
-3. Calls `az rest --method PUT` to create or update each rule by its UUID
-4. Reports per-rule success/failure and exits with code 1 if any rule fails
+3. Sends entity mappings, custom details, alert detail overrides, suppression and incident grouping settings when defined in the YAML
+4. Calls `az rest --method PUT` to create or update each rule by its UUID
+5. Reports per-rule success/failure and exits with code 1 if any rule fails
 
-**Duration handling:** converts shorthand durations (`1h`, `30m`, `1d`) to ISO 8601 format (`PT1H`, `PT30M`, `P1D`) as required by the Sentinel API.
+**Duration handling:** converts shorthand durations (`1h`, `30m`, `1d`) to ISO 8601 format (`PT1H`, `PT30M`, `P1D`) as required by the Sentinel API. This applies to `queryFrequency`, `queryPeriod`, `suppressionDuration` and the incident grouping `lookbackDuration`.
 
 **Trigger operator mapping:** converts readable operators (`gt`, `lt`, `eq`) to the API enum values (`GreaterThan`, `LessThan`, `Equal`).
 
@@ -197,7 +208,7 @@ python3 scripts/deploy-hunting.py changed_hunting.txt
 3. **Validate ARM templates** — checks workbook ARM templates have required fields (`$schema`, `contentVersion`, `resources`)
 4. **Check for duplicate IDs** — ensures no two detection rules share the same UUID
 
-### `deploy.yml` — runs on push to `main` (paths: `Detections/**`, `Hunting/**`, `Workbooks/**`)
+### `deploy.yml` — runs on push to `main` (paths: `Detections/**`, `Hunting/**`, `Workbooks/**`) when `DEPLOY_ENABLED` is `true`, or manually
 
 1. **Deploy Analytic Rules** — deploys only changed detection YAML files (detected via `git diff HEAD~1 HEAD`) to Sentinel via `deploy-rules.py`
 2. **Deploy Hunting Queries** — deploys only changed hunting JSON files via `deploy-hunting.py`
@@ -253,6 +264,7 @@ Common pitfalls when writing KQL for Sentinel or deploying via the REST API:
 - **Connector-dependent tables need `union isfuzzy=true`** — wrapping `CommonSecurityLog`, `SecurityEvent`, `Syslog` prevents deploy-time failures when the connector isn't installed
 - **`DeviceNetworkEvents` uses `InitiatingProcessAccountName`** — not `AccountName`
 - **Hunting queries use `savedSearches` API** — `Microsoft.SecurityInsights/huntingQueries` does not exist
+- **`customDetails` values must be column names** — static text like `"CVE-2024-37079"` is rejected; add it to the query with `| extend VulnID = "CVE-2024-37079"` and map `VulnID: VulnID`
 
 ---
 

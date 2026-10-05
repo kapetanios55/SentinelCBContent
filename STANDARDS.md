@@ -81,6 +81,20 @@ union isfuzzy=true (
 union isfuzzy=true (query1), (query2)
 ```
 
+### customDetails — map to columns, not literal text
+`customDetails` values must be the name of a column in the query output. Static text is
+rejected by the API. Put fixed context into the query and map it:
+```yaml
+query: |
+  ...
+  | extend VulnID = "CVE-2024-37079", KEVAdded = "2026-01-23"
+customDetails:
+  VulnID: VulnID
+  KEVAdded: KEVAdded
+```
+The same applies to `{{Column}}` placeholders in `alertDetailsOverride` (max 3 per field)
+and to `columnName` in `entityMappings`.
+
 ---
 
 ## Workbook ARM Templates

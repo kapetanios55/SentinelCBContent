@@ -1,0 +1,26 @@
+{
+  "id": "1b273960-91de-4152-8524-0e0bd454d0b3",
+  "name": "Hunting - SharePoint Web Shells and Rare w3wp.exe Children (2026 SharePoint KEV cluster)",
+  "description": "Proactive 30-day hunt supporting the SharePoint exploitation detection for CVE-2026-45659, CVE-2026-56164, CVE-2026-58644, CVE-2026-50522 and CVE-2026-65660. Covers: (1) every ASPX/ASHX/ASMX file created or modified under SharePoint TEMPLATE folders, with the writing process and hash for comparison against known solution packages; (2) a stack-rank of rare child processes of SharePoint w3wp.exe across all SharePoint servers. Use it to find web shells planted before the detection rule was deployed.",
+  "tactics": [
+    "Persistence",
+    "Execution"
+  ],
+  "techniques": [
+    "T1505",
+    "T1059"
+  ],
+  "requiredDataConnectors": [
+    "MicrosoftDefenderForEndpoint"
+  ],
+  "query": "// Hunt: SharePoint web shells and w3wp.exe child processes (2026 SharePoint KEV cluster)\n// CVE-2026-45659, CVE-2026-56164, CVE-2026-58644, CVE-2026-50522, CVE-2026-65660\nlet lookback = 30d;\n// --- Section 1: Every ASPX/ASHX/ASMX file created under SharePoint TEMPLATE folders ---\n// Compare against your known solution packages; web shells are usually small,\n// recently created, and written by w3wp.exe, cmd.exe or powershell.exe.\nlet TemplateFiles = DeviceFileEvents\n    | where TimeGenerated >= ago(lookback)\n    | where ActionType in (\"FileCreated\", \"FileModified\", \"FileRenamed\")\n    | where FolderPath has @\"\\Web Server Extensions\\\" and FolderPath has @\"\\TEMPLATE\\\"\n    | where FileName endswith \".aspx\" or FileName endswith \".ashx\" or FileName endswith \".asmx\"\n    | summarize Writes = count(), FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated),\n                Writers = make_set(InitiatingProcessFileName, 5), Hashes = make_set(SHA256, 5)\n        by DeviceName, FileName, FolderPath\n    | extend HuntSection = \"1-TemplateFiles\";\n// --- Section 2: Rare child processes of SharePoint w3wp.exe ---\n// Stack-rank children across all SharePoint servers; anything seen on one host\n// only a handful of times is worth investigating.\nlet W3wpChildren = DeviceProcessEvents\n    | where TimeGenerated >= ago(lookback)\n    | where InitiatingProcessFileName =~ \"w3wp.exe\"\n    | where InitiatingProcessCommandLine has_any (\"SharePoint\", \"SecurityTokenServiceApplicationPool\")\n    | where FileName !in~ (\"csc.exe\", \"cvtres.exe\", \"vbc.exe\", \"conhost.exe\", \"werfault.exe\")\n    | summarize Executions = count(), FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated),\n                Devices = make_set(DeviceName, 10), SampleCommands = make_set(ProcessCommandLine, 5)\n        by FileName\n    | where Executions < 50\n    | extend HuntSection = \"2-RareW3wpChildren\";\nunion TemplateFiles, W3wpChildren\n| sort by HuntSection asc, FirstSeen asc",
+  "source": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
+  "references": [
+    "https://msrc.microsoft.com/update-guide/vulnerability/CVE-2026-45659",
+    "https://msrc.microsoft.com/update-guide/vulnerability/CVE-2026-50522",
+    "https://msrc.microsoft.com/update-guide/vulnerability/CVE-2026-65660",
+    "https://www.cisa.gov/known-exploited-vulnerabilities-catalog"
+  ],
+  "created": "2026-10-05",
+  "version": "1.0.0"
+}
